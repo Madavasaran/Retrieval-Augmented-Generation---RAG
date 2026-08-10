@@ -40,7 +40,29 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment variables
+### 2. Create a MongoDB Atlas cluster
+
+1. Sign up / log in at [MongoDB Atlas](https://cloud.mongodb.com).
+2. Create a **free M0 cluster** (any cloud provider/region is fine).
+3. Under **Database Access**, create a database user with **read and write** permissions. Save the username and password.
+4. Under **Network Access**, add your IP address (or `0.0.0.0/0` for development only).
+5. On the cluster page, click **Connect** → **Drivers** → copy the **connection string**.
+   - Replace `<password>` with your database user password.
+   - Replace `<dbname>` if present, or leave query params as-is.
+
+Example Atlas URI:
+
+```text
+mongodb+srv:
+```
+
+### 3. Connect with MongoDB Compass (optional but recommended)
+
+1. Open **MongoDB Compass**.
+2. Paste your Atlas connection string and click **Connect**.
+3. You should see your cluster. The `rag_db` database and `documents` collection are created automatically on first ingest.
+
+### 4. Configure environment variables
 
 Copy the example env file and fill in your credentials:
 
@@ -51,18 +73,32 @@ cp .env.example .env
 | Variable | Description |
 |----------|-------------|
 | `OPENAI_API_KEY` | Your OpenAI API key |
-| `MONGODB_URI` | MongoDB Atlas connection string |
+| `MONGODB_URI` | Atlas connection string (`mongodb+srv://...`) |
 | `DB_NAME` | Database name (e.g. `rag_db`) |
 | `COLLECTION_NAME` | Collection name (e.g. `documents`) |
 
-### 3. Create the MongoDB Atlas Vector Search index
+**`.env` example (Atlas):**
 
-In the [MongoDB Atlas UI](https://cloud.mongodb.com):
+```env
+OPENAI_API_KEY=sk-...
+MONGODB_URI=
+DB_NAME=rag_db
+COLLECTION_NAME=documents
+```
 
-1. Navigate to your cluster → **Browse Collections** → select your database and collection.
-2. Go to the **Search Indexes** tab → **Create Search Index**.
-3. Choose **JSON Editor** and paste the index definition below.
-4. Name the index **`vector_index`** (must match the value in `app/config.py`).
+> **Tip:** If your password contains special characters (`@`, `#`, `/`, etc.), URL-encode them in the connection string (e.g. `@` → `%40`).
+
+### 5. Create the MongoDB Atlas Vector Search index
+
+In the [MongoDB Atlas UI](https://cloud.mongodb.com) or **Compass connected to Atlas**:
+
+1. Go to your cluster → **Browse Collections**.
+2. Select database **`rag_db`** and collection **`documents`**.
+   - If they don't exist yet, run `/ingest` once first, then refresh.
+3. Open the **Search Indexes** tab → **Create Search Index**.
+4. Choose **JSON Editor**.
+5. Set the index name to **`vector_index`** (must match `app/config.py`).
+6. Paste this definition:
 
 ```json
 {
@@ -77,7 +113,7 @@ In the [MongoDB Atlas UI](https://cloud.mongodb.com):
 }
 ```
 
-Alternatively, using the Atlas Search index definition format with explicit `type`:
+Alternatively, using the explicit `vectorSearch` format:
 
 ```json
 {
@@ -96,7 +132,7 @@ Alternatively, using the Atlas Search index definition format with explicit `typ
 }
 ```
 
-> **Note:** Index creation can take a few minutes. The API will not return vector search results until the index status is **Active**.
+> **Note:** Index creation can take a few minutes. Wait until status is **Active** before running `/query`.
 
 Each ingested document is stored with this shape:
 
@@ -109,7 +145,7 @@ Each ingested document is stored with this shape:
 }
 ```
 
-### 4. Run the server
+### 6. Run the server
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -179,6 +215,24 @@ curl -X POST http://localhost:8000/query \
 ### `GET /health`
 
 Returns `{"status": "ok"}`.
+
+## Troubleshooting
+
+### `SSL handshake failed` / `TLSV1_ALERT_INTERNAL_ERROR`
+
+This almost always means **Atlas is blocking your IP**, not a bug in the app.
+
+1. Go to [Atlas → Network Access](https://cloud.mongodb.com/v2#/security/network/whitelist).
+2. Click **Add IP Address** → **Add Current IP Address** (or `0.0.0.0/0` for development).
+3. Wait **1–2 minutes**, then retry.
+
+Verify from your terminal (should print `{ ok: 1 }`):
+
+```bash
+mongosh "YOUR_MONGODB_URI" --eval 'db.runCommand({ ping: 1 })'
+```
+
+If `mongosh` fails with the same SSL error, fix Atlas Network Access before retrying `/ingest`.
 
 ## Error Handling
 

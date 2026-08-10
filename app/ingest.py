@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from io import BytesIO
 
@@ -13,11 +14,21 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 
 
+def _normalize_whitespace(text: str) -> str:
+    """Collapse irregular PDF spacing into clean single-spaced text."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[^\S\n]+", " ", text)
+    text = re.sub(r" *\n+", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    lines = [re.sub(r" +", " ", line).strip() for line in text.split("\n")]
+    return "\n".join(line for line in lines if line)
+
+
 def _load_pdf_text(file_bytes: bytes) -> str:
     """Extract all text from a PDF byte stream."""
     reader = PdfReader(BytesIO(file_bytes))
     pages = [page.extract_text() or "" for page in reader.pages]
-    text = "\n".join(pages).strip()
+    text = _normalize_whitespace("\n".join(pages))
     if not text:
         raise ValueError("PDF contains no extractable text")
     return text

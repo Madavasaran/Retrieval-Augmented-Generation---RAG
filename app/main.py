@@ -1,13 +1,18 @@
+# AI-ASSISTED: Cursor
+# PROMPT: Use shared Atlas MongoDB client and surface connection errors clearly
+# ACCEPTED-BY: madavasaran
+
 import logging
 import time
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from openai import OpenAI
 from pydantic import ValidationError
-from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.errors import PyMongoError
 
 from app.config import Settings, get_settings
+from app.db import get_collection
 from app.generate import generate_answer
 from app.ingest import ingest_pdf
 from app.models import IngestResponse, QueryRequest, QueryResponse
@@ -35,9 +40,7 @@ def _get_openai_client(settings: Settings = Depends(get_settings)) -> OpenAI:
 def _get_collection(settings: Settings = Depends(get_settings)) -> Collection:
     if not settings.mongodb_uri:
         raise HTTPException(status_code=500, detail="MONGODB_URI is not configured")
-    client = MongoClient(settings.mongodb_uri)
-    db = client[settings.db_name]
-    return db[settings.collection_name]
+    return get_collection(settings)
 
 
 @app.middleware("http")
@@ -89,6 +92,12 @@ async def ingest_endpoint(
     except ValueError as exc:
         logger.warning("Ingestion failed for %s: %s", file.filename, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (PyMongoError, ConnectionError) as exc:
+        logger.exception("MongoDB error during ingestion of %s", file.filename)
+        detail = str(exc) if isinstance(exc, ConnectionError) else (
+            "MongoDB connection failed. Check Atlas Network Access (IP whitelist) and MONGODB_URI."
+        )
+        raise HTTPException(status_code=503, detail=detail) from exc
     except Exception as exc:
         logger.exception("Unexpected error during ingestion of %s", file.filename)
         raise HTTPException(status_code=500, detail="Ingestion failed") from exc
