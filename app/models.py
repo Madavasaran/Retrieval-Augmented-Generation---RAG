@@ -1,3 +1,7 @@
+# AI-ASSISTED: Cursor
+# PROMPT: Add ChatRequest and ChatResponse models for /chat endpoint
+# ACCEPTED-BY: madavasaran
+
 from pydantic import BaseModel, Field
 
 
@@ -43,3 +47,22 @@ class QueryResponse(BaseModel):
 
     answer: str
     sources: list[SourceCitation]
+
+
+class ChatRequest(BaseModel):
+    """Request body for the /chat endpoint (direct LLM, no retrieval)."""
+
+    question: str = Field(..., min_length=1, description="User message")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=500, ge=50, le=2000)
+    model: str = Field(default="gpt-4o-mini", description="OpenAI chat model")
+    system_prompt: str | None = Field(
+        default=None,
+        description="Optional system prompt override",
+    )
+
+
+class ChatResponse(BaseModel):
+    """Response from direct chat completion."""
+
+    answer: str

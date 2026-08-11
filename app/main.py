@@ -1,3 +1,7 @@
+# AI-ASSISTED: Cursor
+# PROMPT: Register POST /chat endpoint for direct OpenAI chat completion
+# ACCEPTED-BY: madavasaran
+
 import logging
 import time
 
@@ -9,9 +13,17 @@ from pymongo.errors import PyMongoError
 
 from app.config import Settings, get_settings
 from app.db import get_collection
+from app.chat import chat_completion
 from app.generate import generate_answer
 from app.ingest import ingest_pdf
-from app.models import IngestResponse, QueryRequest, QueryResponse, SourceCitation
+from app.models import (
+    ChatRequest,
+    ChatResponse,
+    IngestResponse,
+    QueryRequest,
+    QueryResponse,
+    SourceCitation,
+)
 from app.retrieve import retrieve_chunks
 from app.validation import validate_pdf_upload
 
@@ -157,6 +169,34 @@ def query_endpoint(
         for chunk in sources
     ]
     return QueryResponse(answer=answer, sources=citations)
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_endpoint(
+    body: ChatRequest,
+    settings: Settings = Depends(get_settings),
+    openai_client: OpenAI = Depends(_get_openai_client),
+):
+    """Answer a question via direct OpenAI chat completion (no retrieval)."""
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question must not be empty")
+
+    try:
+        answer = chat_completion(
+            question=question,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
+            model=body.model,
+            settings=settings,
+            openai_client=openai_client,
+            system_prompt=body.system_prompt,
+        )
+    except Exception as exc:
+        logger.exception("Chat completion failed for question: %s", question[:100])
+        raise HTTPException(status_code=500, detail="Chat completion failed") from exc
+
+    return ChatResponse(answer=answer)
 
 
 @app.exception_handler(ValidationError)
