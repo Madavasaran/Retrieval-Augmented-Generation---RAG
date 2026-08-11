@@ -1,5 +1,3 @@
-
-
 import logging
 
 from openai import OpenAI
@@ -17,20 +15,28 @@ def _embed_query(client: OpenAI, query: str, model: str) -> list[float]:
     return response.data[0].embedding
 
 
-def retrieve_chunks(
+def _doc_to_chunk(doc: dict) -> RetrievedChunk:
+    return RetrievedChunk(
+        text=doc["text"],
+        score=float(doc["score"]),
+        chunk_id=doc["chunk_id"],
+        source=doc.get("source", ""),
+        page=doc.get("page"),
+    )
+
+
+def vector_search_chunks(
     question: str,
     collection: Collection,
     settings: Settings,
     openai_client: OpenAI,
 ) -> list[RetrievedChunk]:
     """
-    Embed the query and run MongoDB $vectorSearch aggregation.
+    Run MongoDB $vectorSearch and return top-k results without score filtering.
 
     Uses index name "vector_index", path "embedding",
-    numCandidates=100, limit=5. Filters by settings.retrieval_min_score.
+    numCandidates=100, limit=5.
     """
-    logger.info("Retrieving chunks for question: %s", question[:100])
-
     query_vector = _embed_query(openai_client, question, settings.embedding_model)
 
     pipeline = [
@@ -55,39 +61,45 @@ def retrieve_chunks(
         },
     ]
 
-    results = list(collection.aggregate(pipeline))
+    return [_doc_to_chunk(doc) for doc in collection.aggregate(pipeline)]
 
-    if not results:
+
+def retrieve_chunks(
+    question: str,
+    collection: Collection,
+    settings: Settings,
+    openai_client: OpenAI,
+) -> list[RetrievedChunk]:
+    """
+    Embed the query, run vector search, and filter by retrieval_min_score.
+    """
+    logger.info("Retrieving chunks for question: %s", question[:100])
+
+    raw_results = vector_search_chunks(
+        question=question,
+        collection=collection,
+        settings=settings,
+        openai_client=openai_client,
+    )
+
+    if not raw_results:
         logger.warning("No matching chunks found for question")
         return []
 
     min_score = settings.retrieval_min_score
-    chunks: list[RetrievedChunk] = []
-    for doc in results:
-        score = float(doc["score"])
-        if score < min_score:
-            continue
-        chunks.append(
-            RetrievedChunk(
-                text=doc["text"],
-                score=score,
-                chunk_id=doc["chunk_id"],
-                source=doc.get("source", ""),
-                page=doc.get("page"),
-            )
-        )
+    chunks = [chunk for chunk in raw_results if chunk.score >= min_score]
 
     logger.info(
         "Retrieved %d raw results, %d passed min score %.2f",
-        len(results),
+        len(raw_results),
         len(chunks),
         min_score,
     )
 
-    if results and not chunks:
+    if raw_results and not chunks:
         logger.warning(
             "All %d retrieved chunks were below min score %.2f",
-            len(results),
+            len(raw_results),
             min_score,
         )
 

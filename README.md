@@ -24,6 +24,11 @@ rag-project/
 │   ├── retrieve.py      # Query embedding + $vectorSearch
 │   ├── generate.py      # Context-aware answer generation
 │   └── models.py        # Pydantic request/response models
+├── eval/
+│   ├── dataset.json     # Labeled evaluation questions
+│   ├── metrics.py       # Recall@K, MRR, abstention helpers
+│   ├── models.py        # Eval dataset schema
+│   └── run_eval.py      # Offline evaluation runner
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -277,3 +282,49 @@ If `mongosh` fails with the same SSL error, fix Atlas Network Access before retr
 1. **Ingest:** Upload is validated (`.pdf` extension, `%PDF` header, readable PDF). A SHA-256 hash is computed; if that hash already exists in MongoDB, ingestion is skipped. Otherwise, PDF text is extracted page-by-page with `pypdf`, split into 500-token chunks per page (50-token overlap within each page), embedded with `text-embedding-3-large`, and inserted into MongoDB with `source`, `page`, and `file_hash` metadata.
 2. **Retrieve:** The user question is embedded with the same model. MongoDB `$vectorSearch` finds the top 5 most similar chunks (`numCandidates=100`, cosine similarity). Results below `RETRIEVAL_MIN_SCORE` are discarded.
 3. **Generate:** Passing chunks are passed as context to `gpt-4o-mini` with a system prompt that restricts answers to the provided context only. The API returns citation metadata (`source`, `page`, `chunk_id`, `score`) without chunk text.
+
+## Evaluation (custom, no RAGAS)
+
+Offline evaluation measures retrieval quality and end-to-end behavior against a labeled dataset.
+
+### Dataset
+
+Edit [`eval/dataset.json`](eval/dataset.json). Each case supports:
+
+| Field | Purpose |
+|-------|---------|
+| `question` | User question |
+| `should_answer` | `false` for irrelevant/unanswerable queries |
+| `expected_source` | Expected PDF filename in citations |
+| `expected_page` | Expected page number (1-based) |
+| `expected_chunk_ids` | Gold chunk IDs for Recall@K / MRR (optional) |
+| `expected_answer_contains` | Substrings that should appear in the answer |
+| `category` | `relevant`, `irrelevant`, or `unanswerable` |
+
+After ingesting a PDF, copy real `chunk_id` values from MongoDB Compass into `expected_chunk_ids` for strict retrieval metrics.
+
+### Run evaluation
+
+```bash
+# Full eval (retrieval + generation) — uses OpenAI API
+python eval/run_eval.py
+
+# Retrieval metrics only (no LLM generation cost)
+python eval/run_eval.py --skip-generation
+```
+
+Results are saved to `eval/results/eval_<timestamp>.json` and printed as a summary table.
+
+### Metrics
+
+| Metric | What it measures |
+|--------|------------------|
+| **Recall@K** | Gold chunks found in top-K raw retrieval |
+| **Precision@K** | Relevant chunks in top-K raw retrieval |
+| **MRR** | Rank of first gold chunk |
+| **source_match_rate** | Expected PDF appears in raw retrieval |
+| **page_match_rate** | Expected page appears in raw retrieval |
+| **abstention_accuracy** | `"I don't know"` when `should_answer: false` |
+| **keyword_coverage** | Expected answer phrases found in output |
+
+Raw retrieval (pre-threshold) is used for Recall/Precision/MRR. Generation uses the same post-threshold filtering as `/query`.

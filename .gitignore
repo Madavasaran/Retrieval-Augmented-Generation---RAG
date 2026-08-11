@@ -8,3 +8,6 @@ __pycache__/
 
 # Environment/secrets
 .env
+
+# Evaluation output reports
+eval/results/

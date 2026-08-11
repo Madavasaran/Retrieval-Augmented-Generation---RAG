@@ -1,0 +1,129 @@
+[
+  {
+    "id": "td01",
+    "question": "What is the title of this paper?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 1,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["Hidden Technical Debt in Machine Learning Systems"]
+  },
+  {
+    "id": "td02",
+    "question": "Who wrote the paper on hidden technical debt in machine learning systems?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 1,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["Sculley", "Google"]
+  },
+  {
+    "id": "td03",
+    "question": "What engineering framework does the paper use to analyze ML systems?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 1,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["technical debt"]
+  },
+  {
+    "id": "td04",
+    "question": "What is entanglement in the context of machine learning systems?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 2,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["entangl"]
+  },
+  {
+    "id": "td05",
+    "question": "Why do data dependencies cost more than code dependencies in ML systems?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 3,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["data dependenc"]
+  },
+  {
+    "id": "td06",
+    "question": "What fraction of a mature ML system is typically ML code versus glue code?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 5,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["5%", "95%"]
+  },
+  {
+    "id": "td07",
+    "question": "What are feedback loops in live ML systems?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 4,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["feedback loop"]
+  },
+  {
+    "id": "td08",
+    "question": "What is glue code in machine learning systems?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 5,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["glue code"]
+  },
+  {
+    "id": "td09",
+    "question": "What is cultural debt according to the paper?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 8,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["Cultural Debt"]
+  },
+  {
+    "id": "td10",
+    "question": "What ML-specific risk factors does the abstract mention?",
+    "category": "relevant",
+    "should_answer": true,
+    "expected_source": "NIPS-2015-hidden-technical-debt-in-machine-learning-systems-Paper .pdf",
+    "expected_page": 1,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": ["boundary erosion", "entanglement"]
+  },
+  {
+    "id": "td11",
+    "question": "What is cricket?",
+    "category": "irrelevant",
+    "should_answer": false,
+    "expected_source": null,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": []
+  },
+  {
+    "id": "td12",
+    "question": "What is Madavasaran's CGPA?",
+    "category": "irrelevant",
+    "should_answer": false,
+    "expected_source": null,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": []
+  },
+  {
+    "id": "td13",
+    "question": "What is the company's refund policy?",
+    "category": "unanswerable",
+    "should_answer": false,
+    "expected_source": null,
+    "expected_chunk_ids": [],
+    "expected_answer_contains": []
+  }
+]
