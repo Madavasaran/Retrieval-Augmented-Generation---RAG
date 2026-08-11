@@ -1,15 +1,16 @@
 # RAG FastAPI Application
 
-A Retrieval-Augmented Generation (RAG) API built with FastAPI, OpenAI embeddings, and MongoDB Atlas Vector Search.
+A Retrieval-Augmented Generation (RAG) API built with FastAPI, OpenAI embeddings, and MongoDB Atlas Vector Search — plus a React chat UI for RAG and direct LLM conversations.
 
 ## Stack
 
 | Component | Technology |
 |-----------|------------|
 | Backend | FastAPI (Python 3.11+) |
+| Frontend | React 19 + Vite + TypeScript + Tailwind CSS |
 | Embeddings | OpenAI `text-embedding-3-large` (3072 dimensions) |
 | Vector store | MongoDB Atlas Vector Search |
-| Generation | OpenAI `gpt-4o-mini` |
+| Generation | OpenAI `gpt-4o-mini` / `gpt-4o` |
 | PDF parsing | pypdf |
 | Chunking | LangChain `RecursiveCharacterTextSplitter` (500 tokens, 50 overlap) |
 
@@ -18,12 +19,23 @@ A Retrieval-Augmented Generation (RAG) API built with FastAPI, OpenAI embeddings
 ```
 rag-project/
 ├── app/
-│   ├── main.py          # FastAPI app with /ingest and /query endpoints
+│   ├── main.py          # FastAPI app: /ingest, /query, /chat, /health
 │   ├── config.py        # Environment settings via pydantic-settings
+│   ├── db.py            # MongoDB client with TLS (certifi)
 │   ├── ingest.py        # PDF → chunks → embeddings → MongoDB
 │   ├── retrieve.py      # Query embedding + $vectorSearch
-│   ├── generate.py      # Context-aware answer generation
+│   ├── generate.py      # Context-aware RAG answer generation
+│   ├── chat.py          # Direct OpenAI chat completion (no retrieval)
+│   ├── validation.py    # PDF upload validation
 │   └── models.py        # Pydantic request/response models
+├── frontend/
+│   ├── src/
+│   │   ├── components/  # Sidebar, ChatWindow, MessageBubble, etc.
+│   │   ├── hooks/       # useChat.ts — API calls for RAG and chat modes
+│   │   ├── types.ts
+│   │   └── App.tsx
+│   ├── vite.config.ts   # Dev proxy to localhost:8000
+│   └── tailwind.config.js
 ├── eval/
 │   ├── dataset.json     # Labeled evaluation questions
 │   ├── metrics.py       # Recall@K, MRR, abstention helpers
@@ -160,13 +172,33 @@ Duplicate PDFs (same SHA-256 content) are skipped automatically — no new embed
 
 > **Note:** Re-ingest PDFs after upgrading to populate `page` / `file_hash` metadata on older documents.
 
-### 6. Run the server
+### 6. Run the backend
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Interactive API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### 7. Run the chat UI (optional)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the Vite dev server (usually [http://localhost:5173](http://localhost:5173)). The frontend proxies `/ingest`, `/query`, `/chat`, and `/health` to `http://localhost:8000` — start the backend first.
+
+#### Chat UI features
+
+| Feature | Description |
+|---------|-------------|
+| **RAG Mode** | Upload PDFs via paperclip, ask questions via `/query`, view collapsible source citations |
+| **Chat Mode** | Direct LLM chat via `/chat` with configurable temperature, max tokens, model, and system prompt |
+| **Settings drawer** | Temperature (0–2), max tokens (50–2000), model (`gpt-4o-mini` / `gpt-4o`), system prompt override |
+| **Conversations** | In-memory conversation list (not persisted across page reloads) |
+| **Theme** | Red dark mode (ChatGPT-inspired layout) |
 
 ## API Endpoints
 
@@ -243,6 +275,46 @@ curl -X POST http://localhost:8000/query \
   -d '{"question": "What is the main topic?"}'
 ```
 
+### `POST /chat`
+
+Direct OpenAI chat completion without retrieval. Used by **Chat Mode** in the frontend.
+
+**Request:**
+
+```json
+{
+  "question": "Explain gradient descent in simple terms.",
+  "temperature": 0.7,
+  "max_tokens": 500,
+  "model": "gpt-4o-mini",
+  "system_prompt": "You are a helpful assistant."
+}
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `question` | yes | — | User message |
+| `temperature` | no | `0.7` | 0.0–2.0 |
+| `max_tokens` | no | `500` | 50–2000 |
+| `model` | no | `gpt-4o-mini` | OpenAI chat model |
+| `system_prompt` | no | `"You are a helpful assistant."` | System prompt override |
+
+**Response:**
+
+```json
+{
+  "answer": "Gradient descent is an optimization algorithm..."
+}
+```
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Hello!", "temperature": 0.7, "max_tokens": 200, "model": "gpt-4o-mini"}'
+```
+
 ### `GET /health`
 
 Returns `{"status": "ok"}`.
@@ -276,12 +348,14 @@ If `mongosh` fails with the same SSL error, fix Atlas Network Access before retr
 | No matching chunks found | 200 | Answer: `"I don't know"`, empty sources |
 | All chunks below `RETRIEVAL_MIN_SCORE` | 200 | Answer: `"I don't know"`, empty sources (LLM not called) |
 | OpenAI / MongoDB failures | 500 | Generic error with server-side logging |
+| Chat completion failure | 500 | Generic error with server-side logging |
 
 ## How It Works
 
 1. **Ingest:** Upload is validated (`.pdf` extension, `%PDF` header, readable PDF). A SHA-256 hash is computed; if that hash already exists in MongoDB, ingestion is skipped. Otherwise, PDF text is extracted page-by-page with `pypdf`, split into 500-token chunks per page (50-token overlap within each page), embedded with `text-embedding-3-large`, and inserted into MongoDB with `source`, `page`, and `file_hash` metadata.
 2. **Retrieve:** The user question is embedded with the same model. MongoDB `$vectorSearch` finds the top 5 most similar chunks (`numCandidates=100`, cosine similarity). Results below `RETRIEVAL_MIN_SCORE` are discarded.
-3. **Generate:** Passing chunks are passed as context to `gpt-4o-mini` with a system prompt that restricts answers to the provided context only. The API returns citation metadata (`source`, `page`, `chunk_id`, `score`) without chunk text.
+3. **Generate (RAG):** Passing chunks are passed as context to `gpt-4o-mini` with a system prompt that restricts answers to the provided context only. The API returns citation metadata (`source`, `page`, `chunk_id`, `score`) without chunk text.
+4. **Chat (direct):** `/chat` bypasses retrieval and calls OpenAI chat completion directly with user-supplied temperature, max tokens, model, and optional system prompt.
 
 ## Evaluation (custom, no RAGAS)
 
