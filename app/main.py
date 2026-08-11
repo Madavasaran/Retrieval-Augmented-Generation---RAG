@@ -1,7 +1,3 @@
-# AI-ASSISTED: Cursor
-# PROMPT: Use shared Atlas MongoDB client and surface connection errors clearly
-# ACCEPTED-BY: madavasaran
-
 import logging
 import time
 
@@ -15,8 +11,9 @@ from app.config import Settings, get_settings
 from app.db import get_collection
 from app.generate import generate_answer
 from app.ingest import ingest_pdf
-from app.models import IngestResponse, QueryRequest, QueryResponse
+from app.models import IngestResponse, QueryRequest, QueryResponse, SourceCitation
 from app.retrieve import retrieve_chunks
+from app.validation import validate_pdf_upload
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,35 +71,40 @@ async def ingest_endpoint(
     collection: Collection = Depends(_get_collection),
 ):
     """Ingest a PDF: chunk, embed, and store in MongoDB."""
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
-
     file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     try:
-        chunks_stored = ingest_pdf(
+        safe_filename = validate_pdf_upload(file.filename, file_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        result = ingest_pdf(
             file_bytes=file_bytes,
-            filename=file.filename,
+            filename=safe_filename,
             collection=collection,
             settings=settings,
             openai_client=openai_client,
         )
     except ValueError as exc:
-        logger.warning("Ingestion failed for %s: %s", file.filename, exc)
+        logger.warning("Ingestion failed for %s: %s", safe_filename, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (PyMongoError, ConnectionError) as exc:
-        logger.exception("MongoDB error during ingestion of %s", file.filename)
+        logger.exception("MongoDB error during ingestion of %s", safe_filename)
         detail = str(exc) if isinstance(exc, ConnectionError) else (
             "MongoDB connection failed. Check Atlas Network Access (IP whitelist) and MONGODB_URI."
         )
         raise HTTPException(status_code=503, detail=detail) from exc
     except Exception as exc:
-        logger.exception("Unexpected error during ingestion of %s", file.filename)
+        logger.exception("Unexpected error during ingestion of %s", safe_filename)
         raise HTTPException(status_code=500, detail="Ingestion failed") from exc
 
-    return IngestResponse(chunks_stored=chunks_stored, source=file.filename)
+    return IngestResponse(
+        chunks_stored=result.chunks_stored,
+        source=safe_filename,
+        skipped=result.skipped,
+        file_hash=result.file_hash,
+    )
 
 
 @app.post("/query", response_model=QueryResponse)
@@ -145,7 +147,16 @@ def query_endpoint(
         logger.exception("Generation failed for question: %s", question[:100])
         raise HTTPException(status_code=500, detail="Answer generation failed") from exc
 
-    return QueryResponse(answer=answer, sources=sources)
+    citations = [
+        SourceCitation(
+            source=chunk.source,
+            page=chunk.page,
+            chunk_id=chunk.chunk_id,
+            score=chunk.score,
+        )
+        for chunk in sources
+    ]
+    return QueryResponse(answer=answer, sources=citations)
 
 
 @app.exception_handler(ValidationError)

@@ -76,6 +76,7 @@ cp .env.example .env
 | `MONGODB_URI` | Atlas connection string (`mongodb+srv://...`) |
 | `DB_NAME` | Database name (e.g. `rag_db`) |
 | `COLLECTION_NAME` | Collection name (e.g. `documents`) |
+| `RETRIEVAL_MIN_SCORE` | Minimum vector search score to include a chunk (default `0.70`; tune experimentally) |
 
 **`.env` example (Atlas):**
 
@@ -84,6 +85,7 @@ OPENAI_API_KEY=sk-...
 MONGODB_URI=
 DB_NAME=rag_db
 COLLECTION_NAME=documents
+RETRIEVAL_MIN_SCORE=0.70
 ```
 
 > **Tip:** If your password contains special characters (`@`, `#`, `/`, etc.), URL-encode them in the connection string (e.g. `@` → `%40`).
@@ -141,9 +143,17 @@ Each ingested document is stored with this shape:
   "text": "chunk text content...",
   "embedding": [0.012, -0.034, ...],
   "source": "document.pdf",
-  "chunk_id": "550e8400-e29b-41d4-a716-446655440000"
+  "page": 14,
+  "chunk_id": "550e8400-e29b-41d4-a716-446655440000",
+  "file_hash": "a1b2c3..."
 }
 ```
+
+Duplicate PDFs (same SHA-256 content) are skipped automatically — no new embeddings are created.
+
+> **Tip:** Create a MongoDB index on `file_hash` for faster duplicate checks at scale: `{ "file_hash": 1 }`
+
+> **Note:** Re-ingest PDFs after upgrading to populate `page` / `file_hash` metadata on older documents.
 
 ### 6. Run the server
 
@@ -157,16 +167,29 @@ Interactive API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ### `POST /ingest`
 
-Upload a PDF file for ingestion.
+Upload a PDF file for ingestion. Validates the `.pdf` extension, `%PDF` magic bytes, and PDF structure before processing.
 
 **Request:** `multipart/form-data` with a `file` field containing a PDF.
 
-**Response:**
+**Response (new document):**
 
 ```json
 {
   "chunks_stored": 42,
-  "source": "my-document.pdf"
+  "source": "my-document.pdf",
+  "skipped": false,
+  "file_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+**Response (duplicate — same PDF content already ingested):**
+
+```json
+{
+  "chunks_stored": 0,
+  "source": "my-document.pdf",
+  "skipped": true,
+  "file_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852"
 }
 ```
 
@@ -193,16 +216,19 @@ Ask a question against ingested documents.
 
 ```json
 {
-  "answer": "The main topic is ...",
+  "answer": "The refund period is 30 days.",
   "sources": [
     {
-      "text": "relevant chunk text...",
-      "score": 0.8721,
-      "chunk_id": "550e8400-e29b-41d4-a716-446655440000"
+      "source": "policy.pdf",
+      "page": 12,
+      "chunk_id": "550e8400-e29b-41d4-a716-446655440000",
+      "score": 0.8721
     }
   ]
 }
 ```
+
+Only sources that pass `RETRIEVAL_MIN_SCORE` are returned. Irrelevant queries return `"I don't know"` with an empty `sources` list.
 
 **Example:**
 
@@ -239,13 +265,15 @@ If `mongosh` fails with the same SSL error, fix Atlas Network Access before retr
 | Scenario | HTTP Status | Behavior |
 |----------|-------------|----------|
 | Missing or invalid env vars | 500 | Configuration error message |
-| Non-PDF upload | 400 | "Only PDF files are supported" |
+| Non-PDF upload / invalid PDF | 400 | Extension, magic-byte, or structure validation error |
+| Duplicate PDF (same SHA-256) | 200 | `skipped: true`, `chunks_stored: 0` |
 | Empty PDF / no extractable text | 400 | Descriptive error message |
 | No matching chunks found | 200 | Answer: `"I don't know"`, empty sources |
+| All chunks below `RETRIEVAL_MIN_SCORE` | 200 | Answer: `"I don't know"`, empty sources (LLM not called) |
 | OpenAI / MongoDB failures | 500 | Generic error with server-side logging |
 
 ## How It Works
 
-1. **Ingest:** PDF text is extracted with `pypdf`, split into 500-token chunks (50-token overlap) using LangChain's `RecursiveCharacterTextSplitter`, embedded with `text-embedding-3-large`, and inserted into MongoDB.
-2. **Retrieve:** The user question is embedded with the same model. MongoDB `$vectorSearch` finds the top 5 most similar chunks (`numCandidates=100`, cosine similarity).
-3. **Generate:** Retrieved chunks are passed as context to `gpt-4o-mini` with a system prompt that restricts answers to the provided context only.
+1. **Ingest:** Upload is validated (`.pdf` extension, `%PDF` header, readable PDF). A SHA-256 hash is computed; if that hash already exists in MongoDB, ingestion is skipped. Otherwise, PDF text is extracted page-by-page with `pypdf`, split into 500-token chunks per page (50-token overlap within each page), embedded with `text-embedding-3-large`, and inserted into MongoDB with `source`, `page`, and `file_hash` metadata.
+2. **Retrieve:** The user question is embedded with the same model. MongoDB `$vectorSearch` finds the top 5 most similar chunks (`numCandidates=100`, cosine similarity). Results below `RETRIEVAL_MIN_SCORE` are discarded.
+3. **Generate:** Passing chunks are passed as context to `gpt-4o-mini` with a system prompt that restricts answers to the provided context only. The API returns citation metadata (`source`, `page`, `chunk_id`, `score`) without chunk text.

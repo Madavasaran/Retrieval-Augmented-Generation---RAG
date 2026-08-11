@@ -1,6 +1,4 @@
-# AI-ASSISTED: Cursor
-# PROMPT: MongoDB Atlas vector search retrieval with OpenAI query embedding
-# ACCEPTED-BY: madavasaran
+
 
 import logging
 
@@ -8,7 +6,7 @@ from openai import OpenAI
 from pymongo.collection import Collection
 
 from app.config import Settings
-from app.models import SourceChunk
+from app.models import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +22,12 @@ def retrieve_chunks(
     collection: Collection,
     settings: Settings,
     openai_client: OpenAI,
-) -> list[SourceChunk]:
+) -> list[RetrievedChunk]:
     """
     Embed the query and run MongoDB $vectorSearch aggregation.
 
     Uses index name "vector_index", path "embedding",
-    numCandidates=100, limit=5.
+    numCandidates=100, limit=5. Filters by settings.retrieval_min_score.
     """
     logger.info("Retrieving chunks for question: %s", question[:100])
 
@@ -50,6 +48,8 @@ def retrieve_chunks(
                 "_id": 0,
                 "text": 1,
                 "chunk_id": 1,
+                "source": 1,
+                "page": 1,
                 "score": {"$meta": "vectorSearchScore"},
             }
         },
@@ -61,14 +61,34 @@ def retrieve_chunks(
         logger.warning("No matching chunks found for question")
         return []
 
-    chunks = [
-        SourceChunk(
-            text=doc["text"],
-            score=float(doc["score"]),
-            chunk_id=doc["chunk_id"],
+    min_score = settings.retrieval_min_score
+    chunks: list[RetrievedChunk] = []
+    for doc in results:
+        score = float(doc["score"])
+        if score < min_score:
+            continue
+        chunks.append(
+            RetrievedChunk(
+                text=doc["text"],
+                score=score,
+                chunk_id=doc["chunk_id"],
+                source=doc.get("source", ""),
+                page=doc.get("page"),
+            )
         )
-        for doc in results
-    ]
 
-    logger.info("Retrieved %d chunks", len(chunks))
+    logger.info(
+        "Retrieved %d raw results, %d passed min score %.2f",
+        len(results),
+        len(chunks),
+        min_score,
+    )
+
+    if results and not chunks:
+        logger.warning(
+            "All %d retrieved chunks were below min score %.2f",
+            len(results),
+            min_score,
+        )
+
     return chunks

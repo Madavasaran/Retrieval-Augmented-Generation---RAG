@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 3072
     chat_model: str = "gpt-4o-mini"
     vector_index_name: str = "vector_index"
+    # Minimum vectorSearchScore to pass a chunk to the LLM. Must be tuned
+    # experimentally — cosine score ranges vary by corpus and embedding model.
+    retrieval_min_score: float = Field(default=0.70, alias="RETRIEVAL_MIN_SCORE")
 
     @field_validator("openai_api_key", "mongodb_uri", "db_name", "collection_name")
     @classmethod

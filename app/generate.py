@@ -3,7 +3,7 @@ import logging
 from openai import OpenAI
 
 from app.config import Settings
-from app.models import SourceChunk
+from app.models import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
@@ -14,17 +14,25 @@ SYSTEM_PROMPT = (
 )
 
 
-def _build_context(sources: list[SourceChunk]) -> str:
+def _format_page(page: int | None) -> str:
+    return str(page) if page is not None else "unknown"
+
+
+def _build_context(sources: list[RetrievedChunk]) -> str:
     """Format retrieved chunks into a context block for the prompt."""
     parts = []
     for i, source in enumerate(sources, start=1):
-        parts.append(f"[Chunk {i} | score={source.score:.4f}]\n{source.text}")
+        header = (
+            f"[Chunk {i} | source={source.source} | page={_format_page(source.page)} "
+            f"| score={source.score:.4f}]"
+        )
+        parts.append(f"{header}\n{source.text}")
     return "\n\n".join(parts)
 
 
 def generate_answer(
     question: str,
-    sources: list[SourceChunk],
+    sources: list[RetrievedChunk],
     settings: Settings,
     openai_client: OpenAI,
 ) -> str:
