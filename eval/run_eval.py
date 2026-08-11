@@ -73,7 +73,7 @@ def _evaluate_case(
     raw_pages = [chunk.page for chunk in raw_chunks]
     expected_ids = set(case.expected_chunk_ids)
 
-    answer = "I don't know"
+    answer = "I don't know, I am a RAG assistant. I am only able to answer questions based on the provided context"
     llm_called = False
     if filtered_chunks and not skip_generation:
         llm_called = True

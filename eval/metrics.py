@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-IDK_ANSWER = "i don't know"
+IDK_ANSWER = "i don't know, I am a RAG assistant. I am only able to answer questions based on the provided context"
 
 
 def recall_at_k(retrieved_ids: list[str], expected_ids: set[str], k: int) -> float | None:

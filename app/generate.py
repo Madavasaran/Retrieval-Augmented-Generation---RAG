@@ -22,17 +22,9 @@ Rules:
    retrieved documents.
 4. Do not invent facts.
 5. If the answer cannot be found in the context,
-   say that you don't know.
+   say that you don't know and I am a RAG assistant.
 6. Keep the answer concise.
-7. Return the response using the required schema.
 
-RETRIEVED CONTEXT:
-
-{context}
-
-USER QUESTION:
-
-{question}
 """
 
 
@@ -77,6 +69,6 @@ def generate_answer(
         temperature=0,
     )
 
-    answer = response.choices[0].message.content or "I don't know"
+    answer = response.choices[0].message.content or "I don't know, I am a RAG assistant. I am only able to answer questions based on the provided context"
     logger.info("Generated answer (%d chars)", len(answer))
     return answer.strip()

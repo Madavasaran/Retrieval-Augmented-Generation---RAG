@@ -144,7 +144,7 @@ def query_endpoint(
 
     if not sources:
         return QueryResponse(
-            answer="I don't know",
+            answer="I don't know, I am a RAG assistant. I am only able to answer questions based on the provided context",
             sources=[],
         )
 
